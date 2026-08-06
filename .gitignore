@@ -1,0 +1,19 @@
+# Ignore large artifacts
+weights/*.pth
+weights/*.pth.tar
+weights/*.pt
+engines/*
+!engines/.gitkeep
+third_party/
+data/
+out/
+build/
+cmake-build-*/
+*.engine
+*.onnx
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+*.log
+.cache/
