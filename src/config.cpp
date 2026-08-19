@@ -10,8 +10,10 @@ namespace {
 void usage(const char* argv0) {
   std::cerr
       << "Usage: " << argv0 << " [options]\n"
-      << "  --events PATH        Event HDF5\n"
-      << "  --imu PATH           IMU CSV sidecar\n"
+      << "  --events PATH        Event HDF5 (left / mono)\n"
+      << "  --events-left PATH   Alias for --events\n"
+      << "  --events-right PATH  Optional second EVS HDF5; same IMU gate, sequential pass\n"
+      << "  --imu PATH           IMU CSV sidecar (shared across left/right)\n"
       << "  --engine PATH        TensorRT engine (optional for voxel-only / proxy recon)\n"
       << "  --onnx PATH          ONNX (for build_engine)\n"
       << "  --out DIR            Output directory (default: out)\n"
@@ -19,6 +21,8 @@ void usage(const char* argv0) {
       << "  --bins N             Temporal bins (default: 5)\n"
       << "  --gyro-thresh X      ||gyro|| static threshold (required with --gate)\n"
       << "  --gate               Enable IMU-only hard gate (needs state I/O engine)\n"
+      << "  --hold-lookback-s X  Fade-horizon for HOLD latch (default: 1; see README)\n"
+      << "  --hold-release-s X   Unfreeze only after X s of MOVING (default: 0.25)\n"
       << "  --detector ORB|FAST  Keypoint detector (default: ORB)\n"
       << "  --no-video           Skip video writer\n"
       << "  --blackout-tail-s X  Empty windows after last event (default: 2)\n"
@@ -45,8 +49,10 @@ PipelineConfig parse_cli(int argc, char** argv) {
     if (a == "--help" || a == "-h") {
       usage(argv[0]);
       std::exit(0);
-    } else if (a == "--events") {
-      c.events_h5 = need("--events");
+    } else if (a == "--events" || a == "--events-left") {
+      c.events_h5 = need(a.c_str());
+    } else if (a == "--events-right") {
+      c.events_h5_right = need("--events-right");
     } else if (a == "--imu") {
       c.imu_csv = need("--imu");
     } else if (a == "--engine") {
@@ -77,6 +83,12 @@ PipelineConfig parse_cli(int argc, char** argv) {
       c.prefer_int8 = false;
     } else if (a == "--fp16") {
       c.prefer_fp16 = true;
+    } else if (a == "--hold-lookback-s") {
+      c.hold_lookback_us =
+          static_cast<int64_t>(std::stof(need("--hold-lookback-s")) * 1e6f);
+    } else if (a == "--hold-release-s") {
+      c.hold_release_us =
+          static_cast<int64_t>(std::stof(need("--hold-release-s")) * 1e6f);
     } else if (a == "--blackout-tail-s") {
       c.blackout_tail_us =
           static_cast<int64_t>(std::stof(need("--blackout-tail-s")) * 1e6f);
@@ -98,6 +110,7 @@ PipelineConfig parse_cli(int argc, char** argv) {
 void print_config(const PipelineConfig& c) {
   std::cout << "=== PipelineConfig ===\n"
             << "  events:   " << c.events_h5 << "\n"
+            << "  events_R: " << (c.events_h5_right.empty() ? "(none)" : c.events_h5_right) << "\n"
             << "  imu:      " << c.imu_csv << "\n"
             << "  engine:   " << c.engine_path << "\n"
             << "  out:      " << c.out_dir << "\n"
@@ -105,6 +118,8 @@ void print_config(const PipelineConfig& c) {
             << "  bins=" << c.bins << "  window_us=" << c.window_us << "\n"
             << "  gate:     " << (c.enable_imu_gate ? "IMU_HARD" : "off")
             << "  thresh=" << (c.gyro_thresh_set ? std::to_string(c.gyro_static_thresh) : "UNSET")
+            << "  lookback_s=" << (c.hold_lookback_us * 1e-6)
+            << "  release_s=" << (c.hold_release_us * 1e-6)
             << "\n"
             << "  TRT:      workspace_mb=" << (c.trt_workspace_bytes / (1024 * 1024))
             << "  int8=" << c.prefer_int8 << "  fp16=" << c.prefer_fp16 << "\n"

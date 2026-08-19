@@ -43,8 +43,9 @@ voxel:
 gating:
   mode: hard
   imu_only: true
-  gyro_norm_threshold_rad_s: null  # set after first real IMU inspect
-  failure_mode_recording: null
+  gyro_norm_threshold_rad_s: 0.08  # this bag; re-estimate on a new IMU
+  hold_lookback_s: 1.0             # FireNet fade horizon, not a visual fudge
+  hold_release_s: 0.25             # ignore brief MOVING flicker
   # freeze_state requires engine with state I/O (export --externalize-state)
 
 tensorrt:

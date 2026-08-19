@@ -1,4 +1,4 @@
-# Ignore large artifacts
+# Ignore large artifacts and local runs
 weights/*.pth
 weights/*.pth.tar
 weights/*.pt
@@ -17,3 +17,16 @@ __pycache__/
 .venv/
 *.log
 .cache/
+.vscode/
+.idea/
+
+# Session event streams (multi-GB). Keep README / MANIFEST / imu.csv.
+eventgate_usb/*.h5
+eventgate_usb/*.raw
+eventgate_usb/*.dat
+
+# Internal notes, not for a public clone
+libeventgate_prd.md
+IMU_Gated_EVS_Static_Hold_COVER.md
+IMU_Gated_EVS_Static_Hold_SLIDE.md
+EVENT_CAMERA_ECOSYSTEM_GUIDE.md

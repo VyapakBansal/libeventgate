@@ -26,6 +26,8 @@ struct PipelineConfig {
 
   // I/O
   std::string events_h5;
+  // Optional second EVS stream. Same IMU + ImuHardGate; sequential pass, shared timestamps.
+  std::string events_h5_right;
   std::string imu_csv;
   std::string out_dir = "out";
   std::string keypoint_detector = "ORB"; // ORB | FAST
@@ -33,6 +35,17 @@ struct PipelineConfig {
   bool write_video = true;
   bool write_keypoint_csv = true;
   bool enable_imu_gate = false;
+
+  // Hold lookback horizon (default 1 s). This is the FireNet fade timescale
+  // (reconstructions die in about 1-2 s of weak input), not a visual tweak.
+  // Shorter (~0.2 s) still sits in the deceleration tail. Longer (~2 s) can
+  // freeze a canvas from a different heading. Inside the horizon the pipeline
+  // latches the most recent window with at least half the peak event count.
+  int64_t hold_lookback_us = 1'000'000;
+
+  // Stay held until gyro is MOVING for this long. Stops 10 ms IMU flicker from
+  // running FireNet on empty voxels and washing the held frame out.
+  int64_t hold_release_us = 250'000;
 
   // After last event, extend timeline with empty windows (easy-stop blackout demo tail).
   // Default 2 s matches Day-1 smoke / pitch "before" clip packaging.
@@ -45,7 +58,7 @@ struct PipelineConfig {
   float vram_warn_mib = 4500.f;
 };
 
-// Minimal CLI: --events --imu --engine --out --window-ms --gyro-thresh --gate --no-video
+// Minimal CLI: --events [--events-right] --imu --engine --out --window-ms --gyro-thresh --gate --no-video
 PipelineConfig parse_cli(int argc, char** argv);
 void print_config(const PipelineConfig& c);
 

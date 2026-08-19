@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: libeventgate
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - family-names: Bansal
+    given-names: Vyapak
+    email: vyapakbansal@gmail.com
+    affiliation: Intelligent Navigation and Mapping Laboratory, Schulich School of Engineering, University of Calgary
+license: MIT
+repository-code: https://github.com/VyapakBansal/libeventgate
+url: https://github.com/VyapakBansal/libeventgate
+abstract: CUDA/TensorRT pipeline for IMU-gated event-to-video reconstruction on a pure EVS camera. An ARE-style gyroscope test holds FireNet reconstructions during standstill, using a 1 s fade-horizon latch on the last high-event frame.
+keywords:
+  - event camera
+  - event-to-video
+  - FireNet
+  - zero-velocity detection
+  - IMU
+  - TensorRT
+preferred-citation:
+  type: article
+  title: "Zero-Velocity Detection for Holding Event-to-Video Reconstructions on a Pure EVS Camera"
+  authors:
+    - family-names: Bansal
+      given-names: Vyapak
+  year: 2026
+  notes: Manuscript; software at https://github.com/VyapakBansal/libeventgate

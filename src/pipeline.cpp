@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -30,6 +31,28 @@ namespace fs = std::filesystem;
 
 namespace eventgate {
 namespace {
+
+struct ReconSnap {
+  cv::Mat u8;
+  int n_events = 0;
+};
+
+// Last useful canvas in the fade horizon: most recent window whose event count
+// is at least half the peak in the buffer. Skips the starved tail without
+// jumping a full second into a different pose.
+cv::Mat latch_hold_frame(const std::deque<ReconSnap>& hist, int height, int width,
+                         const float* h_frame) {
+  if (hist.empty()) {
+    return frame_to_u8(h_frame, height, width);
+  }
+  int n_star = 0;
+  for (const auto& s : hist) n_star = std::max(n_star, s.n_events);
+  const int thresh = std::max(1, n_star / 2);
+  for (auto it = hist.rbegin(); it != hist.rend(); ++it) {
+    if (it->n_events >= thresh) return it->u8.clone();
+  }
+  return hist.front().u8.clone();
+}
 
 // Proxy "reconstruction" without engine: sum polarity voxels → gray. Enough to
 // prove pipeline + empty-window collapse for Day 1–2 smoke. Replaced by TRT.
@@ -160,12 +183,22 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
     t_end = cfg.window_us * 10;
   }
 
-  // Blackout demo tail: empty windows after last event (proxy or real FireNet decay).
+  // Blackout demo tail: empty windows after last event — held as last recon (see hold path).
   t_end = std::max(t_end, meta.t_max_us + cfg.blackout_tail_us);
 
   int buf = 0;
   float peak_vram = 0.f;
   const int vram_every = std::max(cfg.vram_log_every, 0);
+  bool have_frame = false;
+  int held_windows = 0;
+  const int lookback_n = std::max(
+      1, static_cast<int>((cfg.hold_lookback_us + cfg.window_us - 1) / cfg.window_us));
+  const int release_n = std::max(
+      1, static_cast<int>((cfg.hold_release_us + cfg.window_us - 1) / cfg.window_us));
+  std::deque<ReconSnap> recon_hist;  // inferred frames only; fade-horizon buffer
+  cv::Mat latched;
+  bool in_hold = false;
+  int moving_streak = 0;
 
   while (t_cursor + cfg.window_us <= t_end) {
     const int64_t t0 = t_cursor;
@@ -194,6 +227,19 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
       if (gate) gs = gate->decide(s);
     }
 
+    // Hold reconstructed pixels (skip voxel+infer):
+    //   - empty window, or
+    //   - IMU ARE gate STATIC, or still inside the MOVING release delay.
+    // Latch the last high-event frame in the FireNet fade horizon (default 1 s).
+    // The window where gyro first crosses δ is already event-starved.
+    const bool want_static = static_cast<bool>(gate) && gs == GateState::Static;
+    if (n == 0 || want_static) {
+      moving_streak = 0;
+    } else {
+      ++moving_streak;
+    }
+    const bool hold = have_frame && (n == 0 || want_static || (in_hold && moving_streak < release_n));
+
     const bool need_f16 =
 #if LIBEVENTGATE_HAS_TRT
         static_cast<bool>(trt) && trt->voxel_is_fp16();
@@ -202,42 +248,56 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
 #endif
 
     const auto tv0 = std::chrono::steady_clock::now();
-    // Device-resident volume only — never pull full voxel to host on TRT path.
-    voxelizer.enqueue(stage, n, t0, t1, need_f16, voxelizer.stream());
+    float voxel_ms = 0.f;
+    float infer_ms = 0.f;
+    cv::Mat u8;
 
-    const bool freeze = (gs == GateState::Static);
+    if (hold) {
+      ++held_windows;
+      if (latched.empty()) {
+        latched = latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+      }
+      u8 = latched;
+      in_hold = true;
+    } else {
+      // Device-resident volume only, never pull full voxel to host on TRT path.
+      voxelizer.enqueue(stage, n, t0, t1, need_f16, voxelizer.stream());
 
-    const auto ti0 = std::chrono::steady_clock::now();
+      const bool freeze = (gs == GateState::Static);
+
+      const auto ti0 = std::chrono::steady_clock::now();
 #if LIBEVENTGATE_HAS_TRT
-    if (trt) {
-      // Zero-copy bind: pass device volume pointer that matches engine voxel dtype.
-      const void* vox_ptr = trt->voxel_is_fp16()
-                                ? static_cast<const void*>(voxelizer.device_volume_f16())
-                                : static_cast<const void*>(voxelizer.device_volume_f32());
-      // Single pipeline stream: voxel → TRT → D2H, one sync.
-      trt->run_frame(vox_ptr, h_frame, shape.height, shape.width, freeze, voxelizer.stream());
-      cuda_check(cudaStreamSynchronize(voxelizer.stream()), "voxel+trt sync");
-    } else
+      if (trt) {
+        const void* vox_ptr = trt->voxel_is_fp16()
+                                  ? static_cast<const void*>(voxelizer.device_volume_f16())
+                                  : static_cast<const void*>(voxelizer.device_volume_f32());
+        trt->run_frame(vox_ptr, h_frame, shape.height, shape.width, freeze, voxelizer.stream());
+        cuda_check(cudaStreamSynchronize(voxelizer.stream()), "voxel+trt sync");
+      } else
 #endif
-    {
-      cuda_check(cudaStreamSynchronize(voxelizer.stream()), "voxel sync");
-      cuda_check(cudaMemcpy(d_vol_snapshot, voxelizer.device_volume_f32(), shape.bytes_f32(),
-                            cudaMemcpyDeviceToDevice),
-                 "snapshot vol");
-      std::vector<float> hvol(shape.elements());
-      cuda_check(cudaMemcpy(hvol.data(), d_vol_snapshot, shape.bytes_f32(), cudaMemcpyDeviceToHost),
-                 "D2H vol");
-      proxy_frame_from_voxel(hvol.data(), shape.bins, shape.height, shape.width, h_frame);
-      (void)freeze;
+      {
+        cuda_check(cudaStreamSynchronize(voxelizer.stream()), "voxel sync");
+        cuda_check(cudaMemcpy(d_vol_snapshot, voxelizer.device_volume_f32(), shape.bytes_f32(),
+                              cudaMemcpyDeviceToDevice),
+                   "snapshot vol");
+        std::vector<float> hvol(shape.elements());
+        cuda_check(cudaMemcpy(hvol.data(), d_vol_snapshot, shape.bytes_f32(), cudaMemcpyDeviceToHost),
+                   "D2H vol");
+        proxy_frame_from_voxel(hvol.data(), shape.bins, shape.height, shape.width, h_frame);
+        (void)freeze;
+      }
+      const auto ti1 = std::chrono::steady_clock::now();
+      const float voxel_infer_ms =
+          std::chrono::duration<float, std::milli>(ti1 - tv0).count();
+      infer_ms = std::chrono::duration<float, std::milli>(ti1 - ti0).count();
+      voxel_ms = voxel_infer_ms - infer_ms;
+      u8 = frame_to_u8(h_frame, shape.height, shape.width);
+      recon_hist.push_back(ReconSnap{u8.clone(), n});
+      while (static_cast<int>(recon_hist.size()) > lookback_n) recon_hist.pop_front();
+      latched.release();
+      in_hold = false;
+      have_frame = true;
     }
-    const auto ti1 = std::chrono::steady_clock::now();
-    const float voxel_infer_ms =
-        std::chrono::duration<float, std::milli>(ti1 - tv0).count();
-    const float infer_ms =
-        std::chrono::duration<float, std::milli>(ti1 - ti0).count();
-    const float voxel_ms = voxel_infer_ms - infer_ms;
-
-    cv::Mat u8 = frame_to_u8(h_frame, shape.height, shape.width);
     const int kpn = count_keypoints(u8, cfg.keypoint_detector, cfg.max_keypoints);
     const double t_s = static_cast<double>(t0 - meta.t_min_us) * 1e-6;
     if (kpw) kpw->write(t_s, kpn);
@@ -253,6 +313,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
       peak_vram = std::max(peak_vram, v.used_mib());
       std::cout << "  t=" << t_s << "s n_evt=" << n << " kp=" << kpn
                 << " gate=" << (gs == GateState::Static ? "STATIC" : "MOVING")
+                << (hold ? " HOLD" : "")
                 << " gyro=" << gnorm << " voxel_ms=" << voxel_ms << " infer_ms=" << infer_ms
                 << "\n";
     }
@@ -268,7 +329,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
   cudaFreeHost(h_frame);
 
   std::cout << "done windows=" << result.windows << " static=" << result.static_windows
-            << " peak_vram_mib=" << result.peak_vram_mib << "\n"
+            << " held=" << held_windows << " peak_vram_mib=" << result.peak_vram_mib << "\n"
             << "  keypoints: " << result.keypoint_csv << "\n"
             << "  video:     " << result.video_path << "\n";
   return result;
