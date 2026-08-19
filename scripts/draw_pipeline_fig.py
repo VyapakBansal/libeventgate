@@ -14,7 +14,7 @@ BOXES = [
     (0.68, 0.52, 0.14, 0.28, "8-bit recon\nORB count"),
     (0.86, 0.52, 0.11, 0.28, "recon.mp4\nkeypoints"),
     (0.24, 0.08, 0.16, 0.28, "Empty window\nHOLD\nskip infer,\nre-emit last frame"),
-    (0.46, 0.08, 0.16, 0.28, r"ARE: $\|\omega\|<\delta$" "\nSTATIC\ndiscard $h_{out}$\nrestore $h_{in}$"),
+    (0.46, 0.08, 0.16, 0.28, r"ARE: $\|\omega\|<\delta$" "\nSTATIC $\\geq$ 1 s\nskip infer,\nfade-horizon latch"),
 ]
 
 
@@ -62,7 +62,8 @@ def main() -> None:
     arrow(ax, 0.54, 0.36, 0.54, 0.52)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout(pad=0.2)
-    fig.savefig(OUT, dpi=160, bbox_inches="tight", facecolor="white")
+    fig.savefig(OUT, dpi=200, bbox_inches="tight", facecolor="white")
+    fig.savefig(OUT.with_suffix(".pdf"), bbox_inches="tight", facecolor="white")
     print(f"wrote {OUT}")
 
 

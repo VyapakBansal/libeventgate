@@ -1,0 +1,93 @@
+{
+  "session_id": "20260807_1136",
+  "delta": 0.08,
+  "hold_tail": {
+    "t0": 168.14,
+    "t1": 170.13,
+    "count": 1634,
+    "n_windows": 200
+  },
+  "longest_static": {
+    "t0": 71.998508,
+    "t1": 84.858659
+  },
+  "still_times": {
+    "motion": 49.570311,
+    "static": 78.4285835,
+    "hold": 169.135
+  },
+  "stops": [
+    {
+      "t0": 61.58548,
+      "t1": 71.077469,
+      "mid": 66.3314745
+    },
+    {
+      "t0": 71.998508,
+      "t1": 84.858659,
+      "mid": 78.4285835
+    },
+    {
+      "t0": 86.180655,
+      "t1": 94.233753,
+      "mid": 90.20720399999999
+    },
+    {
+      "t0": 94.31373599999999,
+      "t1": 100.202872,
+      "mid": 97.258304
+    }
+  ],
+  "runs": [
+    {
+      "name": "ungated",
+      "n": 17014,
+      "mean": 913.7070647701893,
+      "median": 917.0,
+      "static_n": 8049,
+      "static_mean": 892.1192694744689,
+      "static_median": 871.0,
+      "moving_n": 7800,
+      "moving_mean": 980.2989743589743,
+      "moving_median": 1026.0,
+      "hold_tail_count": 1634,
+      "hold_tail_identical": true
+    },
+    {
+      "name": "freeze-h (ablation)",
+      "n": 17014,
+      "mean": 607.8725755260374,
+      "median": 281.0,
+      "static_n": 8049,
+      "static_mean": 294.20424897502795,
+      "static_median": 241.0,
+      "moving_n": 7800,
+      "moving_mean": 977.2908974358975,
+      "moving_median": 1009.0,
+      "hold_tail_count": 223,
+      "hold_tail_identical": false
+    },
+    {
+      "name": "fade-horizon latch",
+      "n": 17014,
+      "mean": 913.7070647701893,
+      "median": 917.0,
+      "static_n": 8049,
+      "static_mean": 892.1192694744689,
+      "static_median": 871.0,
+      "moving_n": 7800,
+      "moving_mean": 980.2989743589743,
+      "moving_median": 1026.0,
+      "hold_tail_count": 1634,
+      "hold_tail_identical": true
+    }
+  ],
+  "latch_plateaus": [
+    {
+      "t0": 168.14,
+      "t1": 170.13,
+      "n_windows": 200,
+      "orb": 1634
+    }
+  ]
+}

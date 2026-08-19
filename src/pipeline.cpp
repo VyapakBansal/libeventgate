@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -54,6 +55,12 @@ cv::Mat latch_hold_frame(const std::deque<ReconSnap>& hist, int height, int widt
     if (it->n_events >= thresh) return it->u8.clone();
   }
   return hist.front().u8.clone();
+}
+
+static cv::Mat blend_u8(const cv::Mat& latch, const cv::Mat& live, float alpha) {
+  cv::Mat out;
+  cv::addWeighted(latch, 1.f - alpha, live, alpha, 0, out);
+  return out;
 }
 
 // Sum polarity voxels to a grayscale proxy when no TensorRT engine is loaded.
@@ -121,8 +128,9 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
               << "  state_pairs=" << trt->num_state_pairs()
               << "  voxel_fp16=" << trt->voxel_is_fp16() << "\n";
     if (cfg.enable_imu_gate && !trt->has_state_io()) {
-      std::cerr << "[gate] WARN: --gate set but engine has no h_in/h_out; freeze is a no-op. "
-                   "Re-export with externalized state.\n";
+      std::cerr << "[gate] WARN: --gate set but engine has no h_in/h_out. "
+                   "STATIC skip-infer still holds the last canvas, but MOVING FireNet "
+                   "will not keep recurrent state. Re-export with externalized state.\n";
     }
     log_vram("after_trt_load", cfg.vram_warn_mib);
     const float est =
@@ -201,6 +209,17 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
   bool in_hold = false;
   int moving_streak = 0;
   int static_streak = 0;
+  int n_prev = 0;
+  int n_prev2 = 0;
+  double com_x_prev = 0.;
+  double com_y_prev = 0.;
+  bool have_com_prev = false;
+  bool tedg_armed = false;
+  cv::Mat release_latch;
+  int blend_remaining = 0;
+  const bool ext =
+      cfg.enable_imu_gate && !cfg.ablate_freeze_h &&
+      (cfg.enable_cmdg || cfg.enable_tedg || cfg.enable_srb);
 
   while (t_cursor + cfg.window_us <= t_end) {
     const int64_t t0 = t_cursor;
@@ -221,6 +240,15 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
       std::memcpy(stage.p, events.p() + i0, sizeof(int8_t) * static_cast<size_t>(n));
     }
 
+    double sum_x = 0.;
+    double sum_y = 0.;
+    if (n > 0) {
+      for (int ei = 0; ei < n; ++ei) {
+        sum_x += stage.x[ei];
+        sum_y += stage.y[ei];
+      }
+    }
+
     GateState gs = GateState::Moving;
     float gnorm = 0.f;
     if (imu) {
@@ -229,19 +257,53 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
       if (gate) gs = gate->decide(s);
     }
 
+    const bool gyro_static = static_cast<bool>(gate) && gs == GateState::Static;
+    bool com_veto = false;
+    if (ext && cfg.enable_cmdg && n >= cfg.com_min_events && have_com_prev) {
+      const double xc = sum_x / static_cast<double>(n);
+      const double yc = sum_y / static_cast<double>(n);
+      const double drift =
+          std::hypot(xc - com_x_prev, yc - com_y_prev);
+      if (drift > static_cast<double>(cfg.com_drift_thresh_px)) com_veto = true;
+    }
+    if (n >= cfg.com_min_events) {
+      com_x_prev = sum_x / static_cast<double>(n);
+      com_y_prev = sum_y / static_cast<double>(n);
+      have_com_prev = true;
+    }
+
+    const bool decay =
+        ext && cfg.enable_tedg && n >= cfg.tedg_min_events &&
+        n_prev >= cfg.tedg_min_events && n_prev2 >= cfg.tedg_min_events &&
+        n < static_cast<int>(cfg.tedg_alpha * static_cast<float>(n_prev)) &&
+        n_prev < static_cast<int>(cfg.tedg_alpha * static_cast<float>(n_prev2));
+
+    if (decay && have_frame && static_candidate.empty()) {
+      static_candidate =
+          latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+      tedg_armed = true;
+    }
+
     // Hold when the window is empty, or STATIC has lasted hold_min_static_s.
     // Snapshot the fade-horizon latch at STATIC onset so the debounce wait does
     // not fill the buffer with dying reconstructions.
-    const bool want_static = static_cast<bool>(gate) && gs == GateState::Static;
+    const bool want_static = gyro_static && !com_veto;
     if (want_static) {
-      if (static_streak == 0 && have_frame) {
-        static_candidate = latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+      if (static_streak == 0 && have_frame && static_candidate.empty()) {
+        static_candidate =
+            latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+        tedg_armed = false;
       }
       ++static_streak;
       moving_streak = 0;
     } else {
       static_streak = 0;
-      static_candidate.release();
+      const bool rate_recovered =
+          n > static_cast<int>(cfg.tedg_alpha * static_cast<float>(std::max(n_prev, 1)));
+      if (static_candidate.empty() || !tedg_armed || rate_recovered) {
+        static_candidate.release();
+        tedg_armed = false;
+      }
       if (n == 0) {
         moving_streak = 0;
       } else {
@@ -249,8 +311,13 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
       }
     }
     const bool static_confirmed = want_static && static_streak >= min_static_n;
+    // Freeze-h ablation still infers during STATIC (discards h_out). Latch skips f.
     const bool hold =
-        have_frame && (n == 0 || static_confirmed || (in_hold && moving_streak < release_n));
+        have_frame &&
+        (n == 0 ||
+         (!cfg.ablate_freeze_h &&
+          (static_confirmed || (in_hold && moving_streak < release_n))));
+    const bool freeze_h [[maybe_unused]] = cfg.ablate_freeze_h && want_static;
 
     const bool need_f16 =
 #if LIBEVENTGATE_HAS_TRT
@@ -274,10 +341,12 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
       u8 = latched;
       in_hold = true;
     } else {
+      if (in_hold && ext && cfg.enable_srb && cfg.release_blend_n > 0 && !latched.empty()) {
+        release_latch = latched.clone();
+        blend_remaining = cfg.release_blend_n;
+      }
       // Device-resident volume only, never pull full voxel to host on TRT path.
       voxelizer.enqueue(stage, n, t0, t1, need_f16, voxelizer.stream());
-
-      const bool freeze = false;
 
       const auto ti0 = std::chrono::steady_clock::now();
 #if LIBEVENTGATE_HAS_TRT
@@ -285,7 +354,8 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
         const void* vox_ptr = trt->voxel_is_fp16()
                                   ? static_cast<const void*>(voxelizer.device_volume_f16())
                                   : static_cast<const void*>(voxelizer.device_volume_f32());
-        trt->run_frame(vox_ptr, h_frame, shape.height, shape.width, freeze, voxelizer.stream());
+        trt->run_frame(vox_ptr, h_frame, shape.height, shape.width,
+                       /*freeze_state=*/freeze_h, voxelizer.stream());
         cuda_check(cudaStreamSynchronize(voxelizer.stream()), "voxel+trt sync");
       } else
 #endif
@@ -298,20 +368,30 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
         cuda_check(cudaMemcpy(hvol.data(), d_vol_snapshot, shape.bytes_f32(), cudaMemcpyDeviceToHost),
                    "D2H vol");
         proxy_frame_from_voxel(hvol.data(), shape.bins, shape.height, shape.width, h_frame);
-        (void)freeze;
       }
       const auto ti1 = std::chrono::steady_clock::now();
       const float voxel_infer_ms =
           std::chrono::duration<float, std::milli>(ti1 - tv0).count();
       infer_ms = std::chrono::duration<float, std::milli>(ti1 - ti0).count();
       voxel_ms = voxel_infer_ms - infer_ms;
-      u8 = frame_to_u8(h_frame, shape.height, shape.width);
+      cv::Mat u8_new = frame_to_u8(h_frame, shape.height, shape.width);
+      if (ext && cfg.enable_srb && blend_remaining > 0 && !release_latch.empty()) {
+        const int step = cfg.release_blend_n - blend_remaining + 1;
+        const float alpha =
+            static_cast<float>(step) / static_cast<float>(cfg.release_blend_n);
+        u8 = blend_u8(release_latch, u8_new, alpha);
+        --blend_remaining;
+      } else {
+        u8 = u8_new;
+      }
       recon_hist.push_back(ReconSnap{u8.clone(), n});
       while (static_cast<int>(recon_hist.size()) > lookback_n) recon_hist.pop_front();
       latched.release();
       in_hold = false;
       have_frame = true;
     }
+    n_prev2 = n_prev;
+    n_prev = n;
     const int kpn = count_keypoints(u8, cfg.keypoint_detector, cfg.max_keypoints);
     const double t_s = static_cast<double>(t0 - meta.t_min_us) * 1e-6;
     if (kpw) kpw->write(t_s, kpn);
@@ -327,7 +407,9 @@ PipelineResult run_pipeline(const PipelineConfig& cfg) {
       peak_vram = std::max(peak_vram, v.used_mib());
       std::cout << "  t=" << t_s << "s n_evt=" << n << " kp=" << kpn
                 << " gate=" << (gs == GateState::Static ? "STATIC" : "MOVING")
+                << (com_veto ? " COM_VETO" : "")
                 << (hold ? " HOLD" : "")
+                << (blend_remaining > 0 ? " SRB" : "")
                 << " gyro=" << gnorm << " voxel_ms=" << voxel_ms << " infer_ms=" << infer_ms
                 << "\n";
     }

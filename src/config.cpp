@@ -21,9 +21,16 @@ void usage(const char* argv0) {
       << "  --bins N             Temporal bins (default: 5)\n"
       << "  --gyro-thresh X      ||gyro|| static threshold (required with --gate)\n"
       << "  --gate               Enable IMU-only hard gate (needs state I/O engine)\n"
+      << "  --ablate-freeze-h    Table II: infer during STATIC, discard h_out (not the latch)\n"
       << "  --hold-lookback-s X     Fade-horizon for HOLD latch (default: 1)\n"
       << "  --hold-min-static-s X   Latch only if STATIC lasts at least X s (default: 1)\n"
       << "  --hold-release-s X      Unfreeze only after X s of MOVING (default: 0.25)\n"
+      << "  --no-cmdg               Disable event COM drift veto on STATIC\n"
+      << "  --no-tedg               Disable decay-triggered early latch snapshot\n"
+      << "  --no-srb                Disable soft release blend after HOLD\n"
+      << "  --tedg-alpha X          TEDG decay ratio (default: 0.5)\n"
+      << "  --com-drift-px X        CMDG veto if COM shifts > X px/window (default: 3)\n"
+      << "  --release-blend-n N     SRB linear blend over N windows (default: 10)\n"
       << "  --detector ORB|FAST  Keypoint detector (default: ORB)\n"
       << "  --no-video           Skip video writer\n"
       << "  --blackout-tail-s X  Empty windows after last event (default: 2)\n"
@@ -71,6 +78,9 @@ PipelineConfig parse_cli(int argc, char** argv) {
       c.gyro_thresh_set = true;
     } else if (a == "--gate") {
       c.enable_imu_gate = true;
+    } else if (a == "--ablate-freeze-h") {
+      c.ablate_freeze_h = true;
+      c.enable_imu_gate = true;
     } else if (a == "--detector") {
       c.keypoint_detector = need("--detector");
     } else if (a == "--no-video") {
@@ -93,6 +103,18 @@ PipelineConfig parse_cli(int argc, char** argv) {
     } else if (a == "--hold-release-s") {
       c.hold_release_us =
           static_cast<int64_t>(std::stof(need("--hold-release-s")) * 1e6f);
+    } else if (a == "--no-cmdg") {
+      c.enable_cmdg = false;
+    } else if (a == "--no-tedg") {
+      c.enable_tedg = false;
+    } else if (a == "--no-srb") {
+      c.enable_srb = false;
+    } else if (a == "--tedg-alpha") {
+      c.tedg_alpha = std::stof(need("--tedg-alpha"));
+    } else if (a == "--com-drift-px") {
+      c.com_drift_thresh_px = std::stof(need("--com-drift-px"));
+    } else if (a == "--release-blend-n") {
+      c.release_blend_n = std::stoi(need("--release-blend-n"));
     } else if (a == "--blackout-tail-s") {
       c.blackout_tail_us =
           static_cast<int64_t>(std::stof(need("--blackout-tail-s")) * 1e6f);
@@ -121,10 +143,13 @@ void print_config(const PipelineConfig& c) {
             << "  frame:    " << c.width << "x" << c.height
             << "  bins=" << c.bins << "  window_us=" << c.window_us << "\n"
             << "  gate:     " << (c.enable_imu_gate ? "IMU_HARD" : "off")
+            << "  freeze_h=" << (c.ablate_freeze_h ? "on" : "off")
             << "  thresh=" << (c.gyro_thresh_set ? std::to_string(c.gyro_static_thresh) : "UNSET")
             << "  lookback_s=" << (c.hold_lookback_us * 1e-6)
             << "  min_static_s=" << (c.hold_min_static_us * 1e-6)
             << "  release_s=" << (c.hold_release_us * 1e-6)
+            << "  cmdg=" << c.enable_cmdg << "  tedg=" << c.enable_tedg
+            << "  srb=" << c.enable_srb
             << "\n"
             << "  TRT:      workspace_mb=" << (c.trt_workspace_bytes / (1024 * 1024))
             << "  int8=" << c.prefer_int8 << "  fp16=" << c.prefer_fp16 << "\n"

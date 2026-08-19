@@ -31,6 +31,19 @@ struct PipelineConfig {
   bool write_video = true;
   bool write_keypoint_csv = true;
   bool enable_imu_gate = false;
+  // Table II ablation: run FireNet during STATIC but discard h_out. Not the
+  // released latch. Implies --gate. Empty-window HOLD still skips inference.
+  bool ablate_freeze_h = false;
+
+  // Event-native extensions (enabled with --gate; off for --ablate-freeze-h).
+  bool enable_cmdg = true;
+  bool enable_tedg = true;
+  bool enable_srb = true;
+  float tedg_alpha = 0.5f;       // n_k < alpha * n_{k-1} for two steps
+  int tedg_min_events = 100;
+  float com_drift_thresh_px = 3.f;
+  int com_min_events = 50;
+  int release_blend_n = 10;      // windows (100 ms at 10 ms)
 
   // Search window for the HOLD latch. FireNet fades in ~1-2 s of weak input;
   // 1 s skips the deceleration tail without grabbing a frame from a different heading.

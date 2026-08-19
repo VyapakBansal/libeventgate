@@ -4,7 +4,7 @@ C++ / CUDA / TensorRT pipeline that reconstructs video from a **pure event camer
 
 This is not IMU-only navigation. The IMU is a still/moving bit, used the same way zero-velocity detection is used in a shoe-mounted INS: shut the state update when the platform is stationary.
 
-Paper: [IMU_Gated_EVS_Static_Hold.md](IMU_Gated_EVS_Static_Hold.md)
+Paper (Overleaf): [paper/main.tex](paper/main.tex). Markdown draft: [IMU_Gated_EVS_Static_Hold.md](IMU_Gated_EVS_Static_Hold.md).
 
 If you use this code, cite the repository ([CITATION.cff](CITATION.cff)) and the paper.
 
@@ -21,7 +21,7 @@ V. Bansal, "libeventgate," GitHub, 2026. https://github.com/VyapakBansal/libeven
 3. Run FireNet in TensorRT (hidden state `h_in` / `h_out` must be exposed).
 4. Two holds:
    - **Empty-window HOLD:** no events in the window → skip inference, re-emit the last frame.
-   - **ARE gate:** \(\|\omega\| < \delta\) → skip inference and latch a frame from the **fade horizon** (default 1 s).
+   - **ARE gate + fade-horizon latch:** \(\|\omega\| < \delta\) → skip inference and latch a frame from the **fade horizon** (default 1 s). With `--gate`, **TEDG** (early snapshot on event decay), **CMDG** (COM drift veto), and **SRB** (soft release blend) are on by default.
 
 `--events-left` and `--events-right` share one IMU so a stereo pair can freeze together. Sequential passes, one engine, so a 6 GB GPU is enough. Stereo numbers are not in the paper; the flags are.
 
@@ -82,14 +82,27 @@ Ungated reconstruction:
   --out out/session_1136 --blackout-tail-s 2
 ```
 
-ARE gate with fade-horizon latch:
+ARE gate with fade-horizon latch + TEDG/CMDG/SRB (released default):
 
 ```bash
 export LD_LIBRARY_PATH="${TENSORRT_ROOT}/lib:${LD_LIBRARY_PATH:-}"
 ./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
   --gate --gyro-thresh 0.08 --hold-lookback-s 1 --hold-min-static-s 1 --hold-release-s 0.25 \
-  --out out/session_1136_lookback --blackout-tail-s 2
+  --out out/session_1136_enhanced --blackout-tail-s 2
+```
+
+Full step-by-step (build, three runs, figures): [RUN_COMMANDS.md](RUN_COMMANDS.md).
+
+Figure scripts: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`. After that, `python3` is the venv.
+
+Freeze-h ablation (Table II only):
+
+```bash
+./build/eventgate --events eventgate_usb/events.h5 \
+  --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
+  --ablate-freeze-h --gyro-thresh 0.08 \
+  --out out/session_1136_gated --blackout-tail-s 2
 ```
 
 Set `--gyro-thresh` from **your** IMU (this bag: median \(\|\omega\|\approx 0.087\) rad/s, \(\delta=0.08\)). Do not copy 0.08 onto another sensor.
