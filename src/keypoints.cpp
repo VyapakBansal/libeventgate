@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <vector>
 
 namespace eventgate {
 
@@ -65,8 +66,8 @@ void KeypointCsvWriter::close() {
   if (out_.is_open()) out_.close();
 }
 
-DemoVideoWriter::DemoVideoWriter(const std::string& path, int width, int height, double fps) {
-  // Color flag true — write_gray converts GRAY→BGR for codec compatibility.
+ReconVideoWriter::ReconVideoWriter(const std::string& path, int width, int height, double fps) {
+  // Color flag true: write_gray converts GRAY to BGR because mp4v/MJPG expect 3 channels.
   int fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
   ok_ = vw_.open(path, fourcc, fps, cv::Size(width, height), /*isColor=*/true);
   if (!ok_) {
@@ -76,9 +77,9 @@ DemoVideoWriter::DemoVideoWriter(const std::string& path, int width, int height,
   }
 }
 
-void DemoVideoWriter::write_gray(const cv::Mat& gray_u8) {
+void ReconVideoWriter::write_gray(const cv::Mat& gray_u8) {
   if (!ok_) return;
-  // Most codecs want BGR even for "grayscale" demo clips.
+  // Most codecs reject single-channel frames; convert here, not at the caller.
   cv::Mat bgr;
   if (gray_u8.channels() == 1) {
     cv::cvtColor(gray_u8, bgr, cv::COLOR_GRAY2BGR);
@@ -88,7 +89,7 @@ void DemoVideoWriter::write_gray(const cv::Mat& gray_u8) {
   vw_.write(bgr);
 }
 
-void DemoVideoWriter::release() {
+void ReconVideoWriter::release() {
   if (vw_.isOpened()) vw_.release();
   ok_ = false;
 }

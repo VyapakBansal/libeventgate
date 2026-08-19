@@ -1,18 +1,12 @@
-"""
-ONLY Python required in Phase 0: load official FireNet .pth.tar → ONNX.
-Everything else is C++/CUDA/TensorRT.
-
-  cedric-scheerlinck/rpg_e2vid branch cedric/firenet
-  checkpoint: firenet_1000.pth.tar
-  Google Drive: https://drive.google.com/file/d/1nBCeIF_Us-rGhCjdU5q1Ch-yrFckjZPa
-
-Exports voxel → frame with externalized ConvGRU states (h_in_*/h_out_*) so the
-C++ IMU gate can freeze write-back without a custom TRT plugin.
+"""Export official FireNet (.pth.tar) to ONNX with externalized ConvGRU states.
 
   python python/export_firenet_onnx.py \\
     --repo third_party/rpg_e2vid \\
     --checkpoint weights/firenet_1000.pth.tar \\
     --out engines/firenet.onnx
+
+h_in_*/h_out_* let the C++ IMU gate restore hidden state without a TRT plugin.
+Checkpoint: firenet_1000.pth.tar from cedric-scheerlinck/rpg_e2vid (cedric/firenet).
 """
 
 from __future__ import annotations
@@ -341,7 +335,7 @@ def main() -> None:
         wrapper.eval()
         _export_onnx(wrapper, (dummy,), args.out, ["voxel"], ["frame"], args.opset)
         print(f"wrote {args.out}  (frame-only; no state I/O)")
-        print("NEXT: fix export so --externalize-state succeeds for gate freeze.")
+        print("IMU gate freeze needs h_in/h_out; re-run without --no-externalize-state.")
 
     _try_onnx_check(args.out)
     print("\nNext:")
@@ -349,7 +343,7 @@ def main() -> None:
         "  ./build/build_engine --onnx engines/firenet.onnx "
         "--engine engines/firenet.engine --workspace-mb 512 --fp16 --no-int8"
     )
-    print("  ./build/phase0_run --events ... --engine engines/firenet.engine --out out/recon")
+    print("  ./build/eventgate --events ... --engine engines/firenet.engine --out out/recon")
 
 
 if __name__ == "__main__":

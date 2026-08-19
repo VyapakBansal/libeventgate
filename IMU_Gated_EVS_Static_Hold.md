@@ -102,9 +102,9 @@ We do not use accelerometer-only tests as the main gate. That follows [6], [7]. 
 
 ### C. Fade-horizon latch
 
-The window where \(\|\boldsymbol{\omega}\|\) first drops below \(\delta\) is already event-starved: FireNet has been fed a few hundred milliseconds of dying voxels, so freezing *that* canvas looks gray. Scheerlinck *et al.* [5] and the ungated run here both show reconstructions fading in about 1-2 s of weak input. The released pipeline [15] therefore keeps a 1 s buffer of inferred frames (the lower end of that fade window) and, at the STATIC transition, latches the most recent frame whose event count is at least half the peak in the buffer. That is the last still-alive window, not a fixed delay of 1.00 s.
+The window where \(\|\boldsymbol{\omega}\|\) first drops below \(\delta\) is already event-starved: FireNet has been fed a few hundred milliseconds of dying voxels, so freezing *that* canvas looks gray. Scheerlinck *et al.* [5] and the ungated run here both show reconstructions fading in about 1-2 s of weak input. The released pipeline [15] keeps a 1 s buffer of inferred frames and, at STATIC *onset*, snapshots the most recent frame whose event count is at least half the peak in the buffer. The latch is applied only if STATIC then lasts at least 1 s (`--hold-min-static-s 1`). On this bag the median gyro-quiet bout is about 80 ms (IMU chatter at 24 Hz); those bouts never freeze. A 5 s minimum would wait past the 1-2 s fade, so the held canvas would already be dead.
 
-A shorter horizon (0.2-0.3 s) still sits in the deceleration tail. A longer one (2 s) can freeze a canvas from a different heading. Section VII does not re-measure this latch; those tables are freeze-\(h\) (`session_1136_gated`) and last-window skip-infer (`session_1136_hold`).
+A shorter lookback (0.2-0.3 s) still sits in the deceleration tail. A longer one (2 s) can freeze a canvas from a different heading. Section VII does not re-measure this latch; those tables are freeze-\(h\) (`session_1136_gated`) and last-window skip-infer (`session_1136_hold`).
 
 ### D. Shared Gate for Stereo EVS
 
@@ -126,7 +126,7 @@ Table I lists the stack. Events are HDF5 arrays \((x, y, t_{\mu\mathrm{s}}, p)\)
 | Reconstruction | FireNet [5], TensorRT FP16, about 7 ms/window |
 | Voxel grid | 5 bins, 10 ms, polarity accumulate |
 | Keypoints | OpenCV ORB, cap 2000 |
-| Library | libeventgate (`phase0_run`) [15] |
+| Library | libeventgate (`eventgate`) [15] |
 
 `--gate --gyro-thresh δ` turns on \eqref{eq:are}. Without it, IMU samples are still logged, but FireNet always commits \(h_{\mathrm{out}}\) except during empty-window HOLD.
 
@@ -310,7 +310,7 @@ python3 scripts/plot_imu_hold_paper.py \
 Ungated reconstruction (Section VII-A, VII-B):
 
 ```bash
-./build/phase0_run --events eventgate_usb/events.h5 \
+./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
   --out out/session_1136 --blackout-tail-s 2 --vram-every 50
 ```
@@ -319,7 +319,7 @@ Freeze-\(h\) ablation (Section VII-C, Table II; `out/session_1136_gated`):
 
 ```bash
 export LD_LIBRARY_PATH="${HOME}/sdks/TensorRT-10.16.1.11/lib:${LD_LIBRARY_PATH:-}"
-./build/phase0_run --events eventgate_usb/events.h5 \
+./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
   --gate --gyro-thresh 0.08 --out out/session_1136_gated \
   --blackout-tail-s 2 --vram-every 50
@@ -328,8 +328,8 @@ export LD_LIBRARY_PATH="${HOME}/sdks/TensorRT-10.16.1.11/lib:${LD_LIBRARY_PATH:-
 Fade-horizon latch (library default [15]; not Table II):
 
 ```bash
-./build/phase0_run --events eventgate_usb/events.h5 \
+./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
-  --gate --gyro-thresh 0.08 --hold-lookback-s 1 --hold-release-s 0.25 \
+  --gate --gyro-thresh 0.08 --hold-lookback-s 1 --hold-min-static-s 1 --hold-release-s 0.25 \
   --out out/session_1136_lookback --blackout-tail-s 2 --vram-every 50
 ```

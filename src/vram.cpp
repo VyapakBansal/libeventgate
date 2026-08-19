@@ -30,7 +30,7 @@ VramSnapshot log_vram(const std::string& label, float warn_mib) {
               s.free_bytes / (1024.f * 1024.f));
   if (s.used_mib() > warn_mib) {
     std::fprintf(stderr,
-                 "[vram] WARN: used %.0f MiB > soft budget %.0f MiB — shrink TRT workspace / force INT8\n",
+                 "[vram] WARN: used %.0f MiB > soft budget %.0f MiB; shrink TRT workspace or use INT8\n",
                  s.used_mib(),
                  warn_mib);
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure + build Release with Ninja (you run).
+# Release build with Ninja.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${ROOT}/build"
@@ -14,9 +14,9 @@ cmake -S "${ROOT}" -B "${BUILD}" -G Ninja \
 
 cmake --build "${BUILD}" -j"$(nproc)"
 echo "Binaries in ${BUILD}/"
-echo "  ${BUILD}/phase0_smoke"
-echo "  ${BUILD}/phase0_run"
+echo "  ${BUILD}/eventgate_smoke"
+echo "  ${BUILD}/eventgate"
 echo "  ${BUILD}/build_engine   (if TensorRT found)"
 echo ""
-echo "Without TENSORRT_ROOT: smoke + proxy recon only."
-echo "With TensorRT: export ONNX → build_engine → phase0_run --engine engines/firenet.engine"
+echo "Without TENSORRT_ROOT: smoke + voxel proxy only."
+echo "With TensorRT: export ONNX, then build_engine, then eventgate --engine ..."

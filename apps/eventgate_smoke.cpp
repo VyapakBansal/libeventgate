@@ -11,8 +11,7 @@
 
 namespace fs = std::filesystem;
 
-// Day-1 smoke: synthetic HDF5 + IMU → CUDA voxel pipeline → keypoint CSV / video.
-// No FireNet weights, no TensorRT required.
+// Synthetic events (1 s busy, 1 s empty) plus IMU, no TensorRT required.
 int main(int argc, char** argv) {
   using namespace eventgate;
   try {
@@ -25,7 +24,6 @@ int main(int argc, char** argv) {
     const std::string h5 = out_root + "/synthetic_events.h5";
     const std::string imu = out_root + "/synthetic_imu.csv";
 
-    // 2 s total, events only in first 1 s → second half is blackout
     write_synthetic_events_hdf5(h5, kDefaultWidth, kDefaultHeight,
                                 /*duration_us=*/2'000'000,
                                 /*active_us=*/1'000'000,
@@ -45,7 +43,7 @@ int main(int argc, char** argv) {
     cfg.gyro_thresh_set = true;
     cfg.write_video = true;
 
-    const auto result = run_phase0(cfg);
+    const auto result = run_pipeline(cfg);
     std::cout << "SMOKE OK peak_vram_mib=" << result.peak_vram_mib << "\n";
     return 0;
   } catch (const std::exception& e) {

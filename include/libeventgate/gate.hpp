@@ -4,9 +4,8 @@
 
 namespace eventgate {
 
-// Hard gate: STATIC iff ||ω|| < thresh (ARE-style; no radar).
-// Pipeline holds a lookback reconstruction while STATIC (same as empty-window HOLD).
-// Stereo EVS: construct ONE gate and apply decide() to every camera at the same t.
+// STATIC iff ||omega|| < thresh (Skog ARE, one sample). Apply the same instance
+// to every camera at time t so a stereo pair holds together.
 class ImuHardGate {
 public:
   explicit ImuHardGate(float gyro_norm_thresh) : thresh_(gyro_norm_thresh) {}

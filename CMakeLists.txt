@@ -7,9 +7,8 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Ada Lovelace (RTX 4050 Laptop) = sm_89
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 89)
+  set(CMAKE_CUDA_ARCHITECTURES 89) # Ada; override with -DCMAKE_CUDA_ARCHITECTURES=
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -19,9 +18,6 @@ endif()
 add_compile_options(
   $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-O3>
   $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-DNDEBUG>
-  $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-march=native>
-  $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-ffast-math>
-  $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-fno-plt>
 )
 
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 --use_fast_math -lineinfo")
@@ -49,7 +45,7 @@ if(TENSORRT_INCLUDE_DIR AND TENSORRT_NVINFER AND TENSORRT_NVONNX)
   message(STATUS "TensorRT: ${TENSORRT_INCLUDE_DIR} / ${TENSORRT_NVINFER}")
 else()
   set(LIBEVENTGATE_HAS_TRT OFF)
-  message(WARNING "TensorRT not found — voxel/smoke only. Set TENSORRT_ROOT for FireNet path.")
+  message(WARNING "TensorRT not found; voxel/smoke path only. Set TENSORRT_ROOT for FireNet.")
 endif()
 
 set(EVENTGATE_SOURCES
@@ -99,16 +95,16 @@ set_target_properties(eventgate_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
 
-add_executable(phase0_smoke apps/phase0_smoke.cpp)
-target_link_libraries(phase0_smoke PRIVATE eventgate_core)
+add_executable(eventgate_smoke apps/eventgate_smoke.cpp)
+target_link_libraries(eventgate_smoke PRIVATE eventgate_core)
 
-add_executable(phase0_run apps/phase0_run.cpp)
-target_link_libraries(phase0_run PRIVATE eventgate_core)
+add_executable(eventgate apps/eventgate.cpp)
+target_link_libraries(eventgate PRIVATE eventgate_core)
 
 if(LIBEVENTGATE_HAS_TRT)
   add_executable(build_engine apps/build_engine.cpp)
   target_link_libraries(build_engine PRIVATE eventgate_core)
 endif()
 
-install(TARGETS eventgate_core phase0_smoke phase0_run
+install(TARGETS eventgate_core eventgate_smoke eventgate
   RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)

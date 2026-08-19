@@ -10,7 +10,7 @@
 namespace eventgate {
 
 // Build serialized engine from ONNX (offline via apps/build_engine).
-// Caps workspace to cfg.trt_workspace_bytes — critical on 6 GB VRAM.
+// Caps workspace to cfg.trt_workspace_bytes (6 GB cards OOM if this is large).
 bool build_engine_from_onnx(const std::string& onnx_path,
                             const std::string& engine_out,
                             const PipelineConfig& cfg,

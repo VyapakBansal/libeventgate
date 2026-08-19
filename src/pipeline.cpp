@@ -7,6 +7,8 @@
 #include "libeventgate/voxel_cuda.hpp"
 #include "libeventgate/vram.hpp"
 
+#include <opencv2/core.hpp>
+
 #ifndef LIBEVENTGATE_HAS_TRT
 #define LIBEVENTGATE_HAS_TRT 0
 #endif
@@ -54,8 +56,7 @@ cv::Mat latch_hold_frame(const std::deque<ReconSnap>& hist, int height, int widt
   return hist.front().u8.clone();
 }
 
-// Proxy "reconstruction" without engine: sum polarity voxels → gray. Enough to
-// prove pipeline + empty-window collapse for Day 1–2 smoke. Replaced by TRT.
+// Sum polarity voxels to a grayscale proxy when no TensorRT engine is loaded.
 void proxy_frame_from_voxel(const float* vol, int bins, int H, int W, float* out) {
   const size_t hw = static_cast<size_t>(H) * static_cast<size_t>(W);
   std::memset(out, 0, hw * sizeof(float));
@@ -74,7 +75,7 @@ void proxy_frame_from_voxel(const float* vol, int bins, int H, int W, float* out
 
 } // namespace
 
-PipelineResult run_phase0(const PipelineConfig& cfg) {
+PipelineResult run_pipeline(const PipelineConfig& cfg) {
   print_config(cfg);
   fs::create_directories(cfg.out_dir);
 
@@ -98,7 +99,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
   }
   if (cfg.enable_imu_gate) {
     if (!cfg.gyro_thresh_set) {
-      throw std::runtime_error("--gate requires --gyro-thresh (set after inspecting real IMU)");
+      throw std::runtime_error("--gate requires --gyro-thresh");
     }
     if (!imu) throw std::runtime_error("--gate requires --imu");
     gate = std::make_unique<ImuHardGate>(cfg.gyro_static_thresh);
@@ -106,8 +107,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
 
   VoxelShape shape{cfg.bins, cfg.height > 0 ? cfg.height : meta.height,
                    cfg.width > 0 ? cfg.width : meta.width};
-  // Capacity: worst-case pack for dense 10 ms @ IMX637 — configurable headroom.
-  constexpr int kMaxEvents = 1 << 20; // 1M events/window headroom
+  constexpr int kMaxEvents = 1 << 20; // 1M events/window headroom for dense 10 ms IMX637
   VoxelizerCuda voxelizer(shape, kMaxEvents);
   std::cout << "voxel device bytes ≈ " << (voxelizer.device_bytes() / (1024.0 * 1024.0)) << " MiB\n";
   log_vram("after_voxelizer", cfg.vram_warn_mib);
@@ -121,11 +121,10 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
               << "  state_pairs=" << trt->num_state_pairs()
               << "  voxel_fp16=" << trt->voxel_is_fp16() << "\n";
     if (cfg.enable_imu_gate && !trt->has_state_io()) {
-      std::cerr << "[gate] WARN: --gate set but engine has no h_in/h_out — freeze is a no-op. "
+      std::cerr << "[gate] WARN: --gate set but engine has no h_in/h_out; freeze is a no-op. "
                    "Re-export with externalized state.\n";
     }
     log_vram("after_trt_load", cfg.vram_warn_mib);
-    // Soft pre-flight: engine bindings + voxel + 512 MB workspace should stay well under 4.5 GB.
     const float est =
         static_cast<float>(trt->device_bytes() + voxelizer.device_bytes()) / (1024.f * 1024.f) +
         512.f;
@@ -134,7 +133,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
                    "exceed soft budget " << cfg.vram_warn_mib << " MiB before activations/OpenCV\n";
     } else {
       std::cout << "[vram] preflight est ≈ " << est
-                << " MiB (bindings+voxel+workspace) — under soft budget " << cfg.vram_warn_mib
+                << " MiB (bindings+voxel+workspace); budget " << cfg.vram_warn_mib
                 << " MiB\n";
     }
   }
@@ -144,13 +143,13 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
   }
 #endif
 
-  // Host output frame (pinned for async D2H)
+  // Pinned host frame for async D2H.
   float* h_frame = nullptr;
   const size_t frame_elems = static_cast<size_t>(shape.height) * static_cast<size_t>(shape.width);
   cuda_check(cudaHostAlloc(&h_frame, frame_elems * sizeof(float), cudaHostAllocDefault),
              "pin frame");
 
-  // Proxy-only scratch: full-volume D2H. Skipped for TRT (device-resident voxel bind).
+  // Full-volume D2H only when there is no TRT bind (proxy path).
   float* d_vol_snapshot = nullptr;
 #if LIBEVENTGATE_HAS_TRT
   const bool use_trt = static_cast<bool>(trt);
@@ -165,10 +164,10 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
   const std::string vid_path = cfg.out_dir + "/recon.mp4";
   std::unique_ptr<KeypointCsvWriter> kpw;
   if (cfg.write_keypoint_csv) kpw = std::make_unique<KeypointCsvWriter>(kp_path);
-  std::unique_ptr<DemoVideoWriter> vid;
+  std::unique_ptr<ReconVideoWriter> vid;
   if (cfg.write_video) {
     const double fps = 1e6 / static_cast<double>(cfg.window_us);
-    vid = std::make_unique<DemoVideoWriter>(vid_path, shape.width, shape.height, fps);
+    vid = std::make_unique<ReconVideoWriter>(vid_path, shape.width, shape.height, fps);
     if (!vid->ok()) std::cerr << "WARN: video writer failed to open " << vid_path << "\n";
   }
 
@@ -183,7 +182,6 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
     t_end = cfg.window_us * 10;
   }
 
-  // Blackout demo tail: empty windows after last event — held as last recon (see hold path).
   t_end = std::max(t_end, meta.t_max_us + cfg.blackout_tail_us);
 
   int buf = 0;
@@ -195,10 +193,14 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
       1, static_cast<int>((cfg.hold_lookback_us + cfg.window_us - 1) / cfg.window_us));
   const int release_n = std::max(
       1, static_cast<int>((cfg.hold_release_us + cfg.window_us - 1) / cfg.window_us));
-  std::deque<ReconSnap> recon_hist;  // inferred frames only; fade-horizon buffer
+  const int min_static_n = std::max(
+      1, static_cast<int>((cfg.hold_min_static_us + cfg.window_us - 1) / cfg.window_us));
+  std::deque<ReconSnap> recon_hist;
   cv::Mat latched;
+  cv::Mat static_candidate;  // lookback snapshot at STATIC onset, before debounce wait
   bool in_hold = false;
   int moving_streak = 0;
+  int static_streak = 0;
 
   while (t_cursor + cfg.window_us <= t_end) {
     const int64_t t0 = t_cursor;
@@ -227,18 +229,28 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
       if (gate) gs = gate->decide(s);
     }
 
-    // Hold reconstructed pixels (skip voxel+infer):
-    //   - empty window, or
-    //   - IMU ARE gate STATIC, or still inside the MOVING release delay.
-    // Latch the last high-event frame in the FireNet fade horizon (default 1 s).
-    // The window where gyro first crosses δ is already event-starved.
+    // Hold when the window is empty, or STATIC has lasted hold_min_static_s.
+    // Snapshot the fade-horizon latch at STATIC onset so the debounce wait does
+    // not fill the buffer with dying reconstructions.
     const bool want_static = static_cast<bool>(gate) && gs == GateState::Static;
-    if (n == 0 || want_static) {
+    if (want_static) {
+      if (static_streak == 0 && have_frame) {
+        static_candidate = latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+      }
+      ++static_streak;
       moving_streak = 0;
     } else {
-      ++moving_streak;
+      static_streak = 0;
+      static_candidate.release();
+      if (n == 0) {
+        moving_streak = 0;
+      } else {
+        ++moving_streak;
+      }
     }
-    const bool hold = have_frame && (n == 0 || want_static || (in_hold && moving_streak < release_n));
+    const bool static_confirmed = want_static && static_streak >= min_static_n;
+    const bool hold =
+        have_frame && (n == 0 || static_confirmed || (in_hold && moving_streak < release_n));
 
     const bool need_f16 =
 #if LIBEVENTGATE_HAS_TRT
@@ -255,7 +267,9 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
     if (hold) {
       ++held_windows;
       if (latched.empty()) {
-        latched = latch_hold_frame(recon_hist, shape.height, shape.width, h_frame);
+        latched = static_candidate.empty()
+                      ? latch_hold_frame(recon_hist, shape.height, shape.width, h_frame)
+                      : static_candidate.clone();
       }
       u8 = latched;
       in_hold = true;
@@ -263,7 +277,7 @@ PipelineResult run_phase0(const PipelineConfig& cfg) {
       // Device-resident volume only, never pull full voxel to host on TRT path.
       voxelizer.enqueue(stage, n, t0, t1, need_f16, voxelizer.stream());
 
-      const bool freeze = (gs == GateState::Static);
+      const bool freeze = false;
 
       const auto ti0 = std::chrono::steady_clock::now();
 #if LIBEVENTGATE_HAS_TRT

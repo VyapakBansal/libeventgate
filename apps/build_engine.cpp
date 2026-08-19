@@ -3,7 +3,6 @@
 
 #include <iostream>
 
-// ONNX → TensorRT engine. Workspace hard-capped (default 512 MB) for 6 GB card.
 int main(int argc, char** argv) {
   using namespace eventgate;
   try {

@@ -21,8 +21,9 @@ void usage(const char* argv0) {
       << "  --bins N             Temporal bins (default: 5)\n"
       << "  --gyro-thresh X      ||gyro|| static threshold (required with --gate)\n"
       << "  --gate               Enable IMU-only hard gate (needs state I/O engine)\n"
-      << "  --hold-lookback-s X  Fade-horizon for HOLD latch (default: 1; see README)\n"
-      << "  --hold-release-s X   Unfreeze only after X s of MOVING (default: 0.25)\n"
+      << "  --hold-lookback-s X     Fade-horizon for HOLD latch (default: 1)\n"
+      << "  --hold-min-static-s X   Latch only if STATIC lasts at least X s (default: 1)\n"
+      << "  --hold-release-s X      Unfreeze only after X s of MOVING (default: 0.25)\n"
       << "  --detector ORB|FAST  Keypoint detector (default: ORB)\n"
       << "  --no-video           Skip video writer\n"
       << "  --blackout-tail-s X  Empty windows after last event (default: 2)\n"
@@ -86,6 +87,9 @@ PipelineConfig parse_cli(int argc, char** argv) {
     } else if (a == "--hold-lookback-s") {
       c.hold_lookback_us =
           static_cast<int64_t>(std::stof(need("--hold-lookback-s")) * 1e6f);
+    } else if (a == "--hold-min-static-s") {
+      c.hold_min_static_us =
+          static_cast<int64_t>(std::stof(need("--hold-min-static-s")) * 1e6f);
     } else if (a == "--hold-release-s") {
       c.hold_release_us =
           static_cast<int64_t>(std::stof(need("--hold-release-s")) * 1e6f);
@@ -119,6 +123,7 @@ void print_config(const PipelineConfig& c) {
             << "  gate:     " << (c.enable_imu_gate ? "IMU_HARD" : "off")
             << "  thresh=" << (c.gyro_thresh_set ? std::to_string(c.gyro_static_thresh) : "UNSET")
             << "  lookback_s=" << (c.hold_lookback_us * 1e-6)
+            << "  min_static_s=" << (c.hold_min_static_us * 1e-6)
             << "  release_s=" << (c.hold_release_us * 1e-6)
             << "\n"
             << "  TRT:      workspace_mb=" << (c.trt_workspace_bytes / (1024 * 1024))

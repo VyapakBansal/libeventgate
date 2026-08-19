@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Install CUDA 12.8 toolkit on WSL2 Ubuntu (needs sudo).
-# You run this — AI will not.
+# CUDA 12.8 toolkit on WSL2 Ubuntu (sudo).
 set -eu
 
 CUDA_VERSION="${CUDA_VERSION:-12-8}"

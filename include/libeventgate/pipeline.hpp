@@ -4,14 +4,12 @@
 #include "types.hpp"
 
 #include <string>
-#include <vector>
 
 namespace eventgate {
 
-// End-to-end offline Phase 0 pipeline:
-//   HDF5 events → CUDA voxel (5–10 ms) → (optional TRT FireNet) → ORB counts → video/CSV
-//
-// Without a TRT engine, runs voxel + empty-frame blackout path so Day 1–2 can land hardware-free.
+// HDF5 events -> CUDA voxels -> optional TensorRT FireNet -> ORB counts + video.
+// Without an engine, voxels are summed to a grayscale proxy so the rest of the
+// pipeline (HOLD, IMU gate, writers) can still run.
 
 struct PipelineResult {
   int windows = 0;
@@ -21,6 +19,6 @@ struct PipelineResult {
   float peak_vram_mib = 0.f;
 };
 
-PipelineResult run_phase0(const PipelineConfig& cfg);
+PipelineResult run_pipeline(const PipelineConfig& cfg);
 
 } // namespace eventgate

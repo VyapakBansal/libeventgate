@@ -7,9 +7,8 @@
 
 namespace eventgate {
 
-// IMU series: CSV sidecar and/or MCAP /imu topic.
-// CSV columns: timestamp_us,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z
-// Assumed sorted ascending timestamp_us. Nearest-neighbor lookup O(log n).
+// CSV: timestamp_us,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z (sorted).
+// sample_at() is nearest-neighbor, O(log n).
 class ImuCsv {
 public:
   ImuCsv() = default;
@@ -24,12 +23,10 @@ public:
   void reserve(size_t n);
   void push(const ImuSample& s);
 
-  // Write synthetic IMU (spin then near-static) for smoke tests.
   static void write_synthetic(const std::string& path,
                               int64_t duration_us,
                               float rate_hz = 200.f);
 
-  // Fill series in memory (same pattern as CSV synthetic).
   static ImuCsv make_synthetic(int64_t duration_us, float rate_hz = 200.f);
 
 private:

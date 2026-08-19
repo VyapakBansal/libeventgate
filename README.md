@@ -12,6 +12,8 @@ If you use this code, cite the repository ([CITATION.cff](CITATION.cff)) and the
 V. Bansal, "libeventgate," GitHub, 2026. https://github.com/VyapakBansal/libeventgate
 ```
 
+**Status.** This is research code for the paper, in the same class as [rpg_e2vid](https://github.com/uzh-rpg/rpg_e2vid): a working pipeline you can fork and run, not an SDK. There is no CI, no unit tests, no versioned C API, and no packaged FireNet weights. OpenEB / Metavision is what "industry event-camera software" looks like. Do not drop this into a vehicle stack as-is.
+
 ## What it does
 
 1. Read events from HDF5 (`x, y, t_us, p`) and an IMU sidecar CSV.
@@ -38,6 +40,8 @@ Scheerlinck *et al.* (WACV 2020) and the ungated run in this repo both show reco
 Inside that 1 s buffer the code does **not** blindly take \(t-1\). It latches the **most recent** window whose event count is at least half the peak in the buffer: the last still-alive reconstruction, not the busiest (maybe smeared) one and not the last starved one.
 
 `--hold-release-s 0.25` keeps the latch through 10 ms IMU flicker so one noisy gyro sample cannot run FireNet on empty voxels and wash the picture out.
+
+`--hold-min-static-s 1` refuses to freeze until STATIC has lasted a full second. On this bag the median gyro-quiet bout is about 80 ms (24 Hz chatter). Those never latch. **Do not set this to 5 s:** FireNet is already gray after 1-2 s, so a 5 s wait freezes a dead frame. The lookback snapshot is taken at STATIC *onset*, then applied only if the stop lasts 1 s.
 
 If a reviewer asks “why not cross-validate 0.5 / 1 / 2 s”: those three values are the short / fade / pose-mismatch set above. 1 s is the default because it matches the measured fade, not because it was fit to ORB.
 
@@ -73,7 +77,7 @@ cmake .. -DCMAKE_CUDA_ARCHITECTURES=86
 Ungated reconstruction:
 
 ```bash
-./build/phase0_run --events eventgate_usb/events.h5 \
+./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
   --out out/session_1136 --blackout-tail-s 2
 ```
@@ -82,9 +86,9 @@ ARE gate with fade-horizon latch:
 
 ```bash
 export LD_LIBRARY_PATH="${TENSORRT_ROOT}/lib:${LD_LIBRARY_PATH:-}"
-./build/phase0_run --events eventgate_usb/events.h5 \
+./build/eventgate --events eventgate_usb/events.h5 \
   --imu eventgate_usb/imu.csv --engine engines/firenet.engine \
-  --gate --gyro-thresh 0.08 --hold-lookback-s 1 --hold-release-s 0.25 \
+  --gate --gyro-thresh 0.08 --hold-lookback-s 1 --hold-min-static-s 1 --hold-release-s 0.25 \
   --out out/session_1136_lookback --blackout-tail-s 2
 ```
 

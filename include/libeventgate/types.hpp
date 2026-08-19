@@ -1,7 +1,5 @@
 #pragma once
 
-// Phase 0 types — SoA event layout for coalesced H2D + kernels.
-
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
@@ -14,7 +12,7 @@ inline constexpr int kDefaultHeight   = 512;
 inline constexpr int kDefaultBins     = 5;
 inline constexpr int kDefaultWindowUs = 10'000; // 10 ms
 
-// SoA event batch — preferred GPU/host layout (not AoS).
+// Structure-of-arrays for coalesced H2D copies and voxel kernels (not AoS).
 struct EventSoA {
   const uint16_t* x    = nullptr;
   const uint16_t* y    = nullptr;
@@ -23,7 +21,6 @@ struct EventSoA {
   int32_t         n    = 0;
 };
 
-// Common stream metadata for HDF5 / MCAP offline loaders.
 struct EventStreamMeta {
   int width  = kDefaultWidth;
   int height = kDefaultHeight;
@@ -64,7 +61,7 @@ struct ImuSample {
 
 enum class GateState : uint8_t {
   Moving = 0,
-  Static = 1, // freeze ConvGRU write-back
+  Static = 1,
 };
 
 struct FrameMetrics {

@@ -250,7 +250,7 @@ FireNetTrt::FireNetTrt(const std::string& engine_path) : impl_(std::make_unique<
   // FireNet at 640x512 with two ConvGRU states is ~tens of MiB — flag anything runaway.
   if (bind_mib > 1500.f) {
     std::cerr << "[vram] WARN: FireNet bindings alone " << bind_mib
-              << " MiB — unexpected for plain FireNet; check ONNX shapes\n";
+              << " MiB; unexpected for plain FireNet, check ONNX shapes\n";
   }
 }
 
@@ -320,7 +320,7 @@ void FireNetTrt::run_frame(const void* voxel_device,
       }
     }
   } else if (freeze_state && !impl_->warned_no_state) {
-    std::cerr << "[gate] WARN: engine has no state I/O — freeze is a no-op until ONNX export "
+    std::cerr << "[gate] WARN: engine has no state I/O; freeze is a no-op until ONNX export "
                  "externalizes ConvGRU h_t (re-run export without --no-externalize-state)\n";
     impl_->warned_no_state = true;
   }
@@ -366,7 +366,7 @@ bool build_engine_from_onnx(const std::string& onnx_path,
     if (cfg.trt_workspace_bytes > 512ull * 1024ull * 1024ull) {
       std::cerr << "[build_engine] WARN: workspace > 512 MiB requested ("
                 << (cfg.trt_workspace_bytes / (1024 * 1024))
-                << " MiB). Soft budget soft-flag — may OOM on 6 GB during build.\n";
+                << " MiB); may OOM on 6 GB during build.\n";
     }
 
     auto builder = std::unique_ptr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(g_logger));
@@ -377,12 +377,12 @@ bool build_engine_from_onnx(const std::string& onnx_path,
     if (!parser) {
       if (err)
         *err =
-            "nvonnxparser::createParser failed — missing libnvonnxparser.so (incomplete TRT install)";
+            "nvonnxparser::createParser failed; missing libnvonnxparser.so (incomplete TRT install)";
       return false;
     }
     if (!parser->parseFromFile(onnx_path.c_str(),
                                static_cast<int>(nvinfer1::ILogger::Severity::kWARNING))) {
-      if (err) *err = "ONNX parse failed — check FireNet ConvGRU ops / opset";
+      if (err) *err = "ONNX parse failed; check FireNet ConvGRU ops / opset";
       return false;
     }
 
@@ -403,8 +403,8 @@ bool build_engine_from_onnx(const std::string& onnx_path,
     // Prefer strong typing API over deprecated BuilderFlag::kFP16 when available.
     bool use_fp16 = cfg.prefer_fp16 || cfg.prefer_int8;
     if (cfg.prefer_int8) {
-      std::cerr << "[build_engine] INT8 preferred but no calibrator yet — using FP16. "
-                   "Add calibrator after first real session for INT8.\n";
+      std::cerr << "[build_engine] INT8 preferred but no calibrator yet; using FP16. "
+                   "Add a calibrator for INT8.\n";
     }
     if (use_fp16) {
       config->setFlag(nvinfer1::BuilderFlag::kFP16);

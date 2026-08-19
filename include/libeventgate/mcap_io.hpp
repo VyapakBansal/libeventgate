@@ -1,36 +1,25 @@
 #pragma once
 
-// Phase-0 eventgate MCAP interchange (WIP — not linked into CMake/phase0_run yet).
+// Optional MCAP event/IMU container. Not wired into the eventgate CLI; HDF5 is
+// the supported interchange. Wire layout is little-endian SoA:
 //
-// OpenEB does NOT write MCAP natively (RAW / HDF5+ECF / DAT). Planned path:
-//   1) OpenEB on capture laptop → session.raw (+ optional IMU CSV)
-//   2) Bridge once to MCAP (tooling TBD)
-//   3) rsync *.mcap → WSL
-//   4) phase0_run --mcap ...  (CLI not landed; use --events HDF5 today)
-//
-// Topics + schemas (locked for Phase 0):
-//   /event_camera/events   schema "eventgate.EventPacket"   encoding raw
-//   /imu                   schema "eventgate.ImuSample"     encoding raw
-//
-// EventPacket wire layout (little-endian SoA, one message = one batch):
+// EventPacket:
 //   uint32 magic       = 0x4B504745  ('EGPK')
 //   uint16 version     = 1
 //   uint16 flags       = 0
 //   uint32 n_events
-//   uint16 width       // may be 0; prefer MCAP metadata
+//   uint16 width
 //   uint16 height
 //   uint16 x[n]
 //   uint16 y[n]
-//   int64  t_us[n]     // sensor clock, microseconds
-//   uint8  p[n]        // 0/1 polarity in file → ±1 in memory
+//   int64  t_us[n]
+//   uint8  p[n]        // 0/1 on disk, +/-1 in memory
 //
-// ImuSample wire layout (one message = one sample):
+// ImuSample (one message = one sample):
 //   int64 t_us
 //   float gyro_x, gyro_y, gyro_z
 //   float accel_x, accel_y, accel_z
-//
-// MCAP metadata record name "eventgate": keys width, height, sensor, schema_version
-// Message logTime/publishTime are nanoseconds (t_us * 1000 of first event / sample).
+
 
 #include "types.hpp"
 #include "imu.hpp"
@@ -69,7 +58,7 @@ public:
   [[nodiscard]] const int8_t*   p() const noexcept { return p_; }
   [[nodiscard]] EventSoA view(int64_t i0, int64_t i1) const;
 
-  // IMU from /imu topic (if present). Empty if topic missing — use --imu CSV then.
+  // IMU from /imu if present; otherwise load a sidecar CSV.
   [[nodiscard]] bool has_imu() const noexcept { return imu_.size() > 0; }
   [[nodiscard]] const ImuCsv& imu() const noexcept { return imu_; }
 
@@ -83,7 +72,7 @@ private:
   ImuCsv imu_;
 };
 
-// Synthetic MCAP (events + optional IMU in one file) for smoke tests.
+// Synthetic events plus optional IMU in one MCAP.
 void write_synthetic_mcap(const std::string& path,
                           int width,
                           int height,
@@ -106,7 +95,6 @@ void write_events_mcap(const std::string& path,
                        const std::vector<ImuSample>* imu = nullptr,
                        int events_per_packet = 65536);
 
-// Convert legacy Phase-0 HDF5 → MCAP (compute-side migration).
 void convert_hdf5_to_mcap(const std::string& h5_path,
                           const std::string& mcap_path,
                           const std::string& imu_csv_path = {});

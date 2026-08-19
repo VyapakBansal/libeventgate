@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Day 2–3 helper: after engines/firenet.engine exists, run proxy/real recon blackout demo.
-# You supply EVENTS H5 (and optional IMU). Synthetic smoke stays: ./build/phase0_smoke
+# Reconstruct with a 2 s empty tail after the last event (HOLD past end-of-stream).
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$ROOT/build}"
@@ -11,7 +10,7 @@ IMU="${2:-}"
 
 if [[ -z "${EVENTS}" ]]; then
   echo "Usage: $0 events.h5 [imu.csv]"
-  echo "  ENGINE=engines/firenet.engine OUT=out/before  optional env overrides"
+  echo "  ENGINE=engines/firenet.engine OUT=out/recon  optional env overrides"
   exit 2
 fi
 
@@ -33,4 +32,4 @@ if [[ -n "${IMU}" ]]; then
   ARGS+=(--imu "${IMU}")
 fi
 
-exec "${BUILD}/phase0_run" "${ARGS[@]}"
+exec "${BUILD}/eventgate" "${ARGS[@]}"

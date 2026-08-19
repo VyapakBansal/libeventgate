@@ -20,5 +20,5 @@
   "n_events": 1107493508,
   "files_in_repo": ["imu.csv", "MANIFEST.json", "README.md"],
   "files_local_only": ["events.h5", "events.raw"],
-  "phase0_run_example": "./build/phase0_run --events eventgate_usb/events.h5 --imu eventgate_usb/imu.csv --engine engines/firenet.engine --out out/session_1136"
+  "run_example": "./build/eventgate --events eventgate_usb/events.h5 --imu eventgate_usb/imu.csv --engine engines/firenet.engine --out out/session_1136"
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# System deps for C++ Phase 0 (needs sudo). You run this.
+# C++ build dependencies (sudo).
 set -eu
 
 sudo apt-get update

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VRAM snapshot helper (you run between steps).
+# Print current GPU memory use.
 set -eu
 LABEL="${1:-probe}"
 TS="$(date -Iseconds)"

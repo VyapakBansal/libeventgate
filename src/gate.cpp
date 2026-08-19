@@ -1,6 +1,6 @@
 #include "libeventgate/gate.hpp"
 
-// header-only logic — TU kept for link symmetry / future hysteresis
+// ImuHardGate is header-only. This translation unit keeps the library's
+// object list stable if hysteresis is added later.
 namespace eventgate {
-// intentionally empty
 }
